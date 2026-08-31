@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import shutil
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
+
+from .resources.skill import SKILL_TEXT
 
 MARKER = "trello-axi"
 
@@ -14,9 +15,8 @@ MARKER = "trello-axi"
 def install_skill(destination: Path | None = None) -> Path:
     target = destination or Path.home() / ".agents" / "skills" / MARKER / "SKILL.md"
     target.parent.mkdir(parents=True, exist_ok=True)
-    source = files("trello_axi.resources").joinpath("SKILL.md").read_text()
-    if not target.exists() or target.read_text() != source:
-        target.write_text(source)
+    if not target.exists() or target.read_text() != SKILL_TEXT:
+        target.write_text(SKILL_TEXT)
     return target
 
 

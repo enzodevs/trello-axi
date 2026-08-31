@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "trello-axi"
-version = "0.2.0"
+version = "0.2.1"
 description = "Agent-native, token-efficient CLI for Trello"
 readme = "README.md"
 requires-python = ">=3.13"

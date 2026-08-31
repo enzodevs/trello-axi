@@ -25,7 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--format", choices=("toon", "json"), default="toon", help="output format (default: toon)"
     )
-    parser.add_argument("--version", action="version", version="trello-axi 0.2.0")
+    parser.add_argument("--version", action="version", version="trello-axi 0.2.1")
     commands = parser.add_subparsers(dest="command")
 
     auth = commands.add_parser("auth", help="manage and verify credentials")
