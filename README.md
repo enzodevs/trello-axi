@@ -33,6 +33,15 @@ Or store them locally (the file is created with mode `0600`):
 trello-axi auth set --api-key '...' --token '...'
 ```
 
+Install the bundled skill and optional Claude Code/Codex SessionStart hooks:
+
+```bash
+trello-axi setup skill
+trello-axi setup hooks
+```
+
+The hook installer preserves unmanaged hooks and updates only entries marked for `trello-axi`.
+
 Default path: `${XDG_CONFIG_HOME:-~/.config}/trello-axi/config.json`. Environment variables take precedence. Never commit the token or pass credentials through agent prompts.
 
 ## Agent-oriented workflows
@@ -46,7 +55,8 @@ trello-axi board Dream
 trello-axi lists --board Dream
 trello-axi cards --board Dream --list Backlog --limit 50
 trello-axi search videoaula --board Dream
-trello-axi card view CARD_ID
+trello-axi card view CARD_ID            # descriptions are bounded to 2,000 chars
+trello-axi card view CARD_ID --full     # explicitly request the complete description
 ```
 
 Mutations:
@@ -80,7 +90,7 @@ trello-axi card create-batch --board Dream --list Backlog --file cards.yaml --en
 
 ## Output contract
 
-TOON-style output is the default and JSON is available globally:
+TOON-style output is the default and includes contextual next-command suggestions. JSON is available globally and uses a stable `{<resource>: ..., "help": [...]}` envelope:
 
 ```bash
 trello-axi --format json cards --board Dream --limit 10

@@ -51,11 +51,19 @@ def toon(data: Any, *, name: str = "result") -> str:
     return f"{name}: {_scalar(data)}"
 
 
-def emit(data: Any, *, fmt: str = "toon", name: str = "result") -> None:
+def emit(
+    data: Any,
+    *,
+    fmt: str = "toon",
+    name: str = "result",
+    help_commands: Sequence[str] = (),
+) -> None:
     if fmt == "json":
-        print(json.dumps(data, ensure_ascii=False, indent=2))
+        print(json.dumps({name: data, "help": list(help_commands)}, ensure_ascii=False, indent=2))
     else:
         print(toon(data, name=name))
+        if help_commands:
+            print(toon([{"command": command} for command in help_commands], name="help"))
 
 
 def emit_error(

@@ -23,20 +23,28 @@ def trello_list(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def card(raw: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
+def card(
+    raw: dict[str, Any], *, full: bool = False, description_limit: int | None = None
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "id": raw.get("id"),
         "name": raw.get("name"),
         "list_id": raw.get("idList"),
         "due": raw.get("due"),
-        "closed": raw.get("closed", False),
-        "url": raw.get("url"),
     }
     labels = raw.get("labels") or []
     result["labels"] = ";".join(item.get("name") or item.get("color", "") for item in labels)
     if full:
+        description = str(raw.get("desc", ""))
+        truncated = description_limit is not None and len(description) > description_limit
+        if truncated:
+            description = description[:description_limit] + "…"
         result.update(
-            description=raw.get("desc", ""),
+            description=description,
+            description_chars=len(str(raw.get("desc", ""))),
+            description_truncated=truncated,
+            closed=raw.get("closed", False),
+            url=raw.get("url"),
             due_complete=raw.get("dueComplete", False),
             member_ids=raw.get("idMembers", []),
             checklist_ids=raw.get("idChecklists", []),

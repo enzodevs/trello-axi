@@ -17,6 +17,7 @@ from .models import board as normalize_board
 from .models import card as normalize_card
 from .models import trello_list as normalize_list
 from .output import emit, emit_error
+from .setup import install_hooks, install_skill
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -24,7 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--format", choices=("toon", "json"), default="toon", help="output format (default: toon)"
     )
-    parser.add_argument("--version", action="version", version="trello-axi 0.1.0")
+    parser.add_argument("--version", action="version", version="trello-axi 0.2.0")
     commands = parser.add_subparsers(dest="command")
 
     auth = commands.add_parser("auth", help="manage and verify credentials")
@@ -33,6 +34,14 @@ def _parser() -> argparse.ArgumentParser:
     auth_set.add_argument("--api-key", required=True)
     auth_set.add_argument("--token", required=True)
     auth_commands.add_parser("status", help="verify credentials against Trello")
+
+    setup = commands.add_parser("setup", help="install agent integration")
+    setup_commands = setup.add_subparsers(dest="setup_command", required=True)
+    setup_commands.add_parser("skill", help="install the bundled agent skill")
+    hooks = setup_commands.add_parser("hooks", help="install Claude/Codex SessionStart hooks")
+    hooks.add_argument(
+        "--command", dest="hook_command", help="absolute trello-axi executable used by hooks"
+    )
 
     boards = commands.add_parser("boards", help="list visible boards")
     boards.add_argument("--all", action="store_true", help="include closed boards")
@@ -61,6 +70,7 @@ def _parser() -> argparse.ArgumentParser:
     view = card_commands.add_parser("view")
     view.add_argument("card")
     view.add_argument("--board")
+    view.add_argument("--full", action="store_true", help="do not truncate the description")
     create = card_commands.add_parser("create")
     _create_args(create)
     ensure = card_commands.add_parser("ensure", help="create, move, or update by unique title")
@@ -152,6 +162,12 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
     if args.command == "auth" and args.auth_command == "set":
         path = save_credentials(args.api_key, args.token)
         return {"configured": True, "path": str(path), "permissions": "0600"}, "auth"
+    if args.command == "setup":
+        if args.setup_command == "skill":
+            path = install_skill()
+            return {"installed": True, "skill": str(path)}, "setup"
+        paths = install_hooks(command=args.hook_command)
+        return {"installed": True, "hooks": [str(path) for path in paths]}, "setup"
     credentials = load_credentials()
     with TrelloClient(credentials) as client:
         if args.command == "auth":
@@ -204,7 +220,10 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
 def _run_card(client: TrelloClient, args: argparse.Namespace) -> tuple[Any, str]:
     command = args.card_command
     if command == "view":
-        return normalize_card(client.card(args.card, board=args.board), full=True), "card"
+        limit = None if args.full else 2000
+        return normalize_card(
+            client.card(args.card, board=args.board), full=True, description_limit=limit
+        ), "card"
     if command in {"create", "ensure"}:
         description = _description(args)
         if command == "create":
@@ -294,12 +313,44 @@ def _run_card(client: TrelloClient, args: argparse.Namespace) -> tuple[Any, str]
     raise ValueError(f"unsupported card command: {command}")
 
 
+def _next_steps(args: argparse.Namespace, data: Any) -> tuple[str, ...]:
+    if args.command in {None, "boards"}:
+        return ("trello-axi board <board-id>", "trello-axi lists --board <board-id>")
+    if args.command == "board":
+        return (
+            f"trello-axi cards --board {args.board} --list <list-id>",
+            f"trello-axi search <query> --board {args.board}",
+        )
+    if args.command == "lists":
+        return (f"trello-axi cards --board {args.board} --list <list-id>",)
+    if args.command in {"cards", "search"}:
+        return (
+            "trello-axi card view <card-id>",
+            "trello-axi card move <card-id> --board <board-id> --list <list-id>",
+        )
+    if args.command == "card" and isinstance(data, dict) and data.get("id"):
+        return (
+            f"trello-axi card view {data['id']}",
+            f"trello-axi card comment {data['id']} --text <text>",
+        )
+    if args.command == "setup":
+        return ("trello-axi auth status", "trello-axi boards")
+    if args.command == "auth":
+        return ("trello-axi boards", "trello-axi setup skill")
+    return ()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     try:
         data, name = run(args)
-        emit(data, fmt=args.format, name=name)
+        emit(
+            data,
+            fmt=args.format,
+            name=name,
+            help_commands=_next_steps(args, data),
+        )
         return 0
     except TrelloAxiError as exc:
         emit_error(
