@@ -15,6 +15,7 @@ from .config import load_credentials, save_credentials
 from .errors import TrelloAxiError
 from .models import board as normalize_board
 from .models import card as normalize_card
+from .models import label as normalize_label
 from .models import trello_list as normalize_list
 from .output import emit, emit_error
 from .setup import install_hooks, install_skill
@@ -25,7 +26,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--format", choices=("toon", "json"), default="toon", help="output format (default: toon)"
     )
-    parser.add_argument("--version", action="version", version="trello-axi 0.2.1")
+    parser.add_argument("--version", action="version", version="trello-axi 0.3.0")
     commands = parser.add_subparsers(dest="command")
 
     auth = commands.add_parser("auth", help="manage and verify credentials")
@@ -53,11 +54,36 @@ def _parser() -> argparse.ArgumentParser:
     lists.add_argument("--board", required=True)
     lists.add_argument("--all", action="store_true")
 
+    labels = commands.add_parser("labels", help="list board labels")
+    labels.add_argument("--board", required=True)
+
+    label = commands.add_parser("label", help="create or update board labels")
+    label_commands = label.add_subparsers(dest="label_command", required=True)
+    label_create = label_commands.add_parser("create")
+    label_create.add_argument("--board", required=True)
+    label_create.add_argument("--name", required=True)
+    label_create.add_argument("--color", required=True)
+    label_ensure = label_commands.add_parser("ensure", help="idempotently create/update by name")
+    label_ensure.add_argument("--board", required=True)
+    label_ensure.add_argument("--name", required=True)
+    label_ensure.add_argument("--color", required=True)
+    label_update = label_commands.add_parser("update")
+    label_update.add_argument("label")
+    label_update.add_argument("--name")
+    label_update.add_argument("--color")
+
     cards = commands.add_parser("cards", help="list cards")
     cards.add_argument("--board", required=True)
     cards.add_argument("--list")
     cards.add_argument("--limit", type=_positive_int, default=50)
     cards.add_argument("--full", action="store_true")
+    cards.add_argument(
+        "--label", action="append", default=[], help="filter by exact label name or ID"
+    )
+    cards.add_argument(
+        "--label-order",
+        help="comma-separated exact label names or IDs used as a custom sort order",
+    )
 
     search = commands.add_parser("search", help="search cards")
     search.add_argument("query")
@@ -91,9 +117,18 @@ def _parser() -> argparse.ArgumentParser:
     comment = card_commands.add_parser("comment")
     comment.add_argument("card")
     comment.add_argument("--text", required=True)
-    label = card_commands.add_parser("add-label")
-    label.add_argument("card")
-    label.add_argument("--label-id", required=True)
+    add_label = card_commands.add_parser("add-label")
+    add_label.add_argument("card")
+    add_label_group = add_label.add_mutually_exclusive_group(required=True)
+    add_label_group.add_argument("--label-id")
+    add_label_group.add_argument("--label", help="exact label name; requires --board")
+    add_label.add_argument("--board")
+    remove_label = card_commands.add_parser("remove-label")
+    remove_label.add_argument("card")
+    remove_label_group = remove_label.add_mutually_exclusive_group(required=True)
+    remove_label_group.add_argument("--label-id")
+    remove_label_group.add_argument("--label", help="exact label name; requires --board")
+    remove_label.add_argument("--board")
     checklist = card_commands.add_parser("add-checklist")
     checklist.add_argument("card")
     checklist.add_argument("--name", required=True)
@@ -202,11 +237,26 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
             return [
                 normalize_list(item) for item in client.lists(args.board, include_closed=args.all)
             ], "lists"
+        if args.command == "labels":
+            return [normalize_label(item) for item in client.labels(args.board)], "labels"
+        if args.command == "label":
+            if args.label_command == "create":
+                result = client.create_label(board=args.board, name=args.name, color=args.color)
+                action = "created"
+            elif args.label_command == "ensure":
+                result, action = client.ensure_label(
+                    board=args.board, name=args.name, color=args.color
+                )
+            else:
+                result = client.update_label(args.label, name=args.name, color=args.color)
+                action = "updated"
+            return {"action": action, **normalize_label(result)}, "label"
         if args.command == "cards":
-            return [
-                normalize_card(item, full=args.full)
-                for item in client.cards(args.board, list_value=args.list, limit=args.limit)
-            ], "cards"
+            raw_cards = client.cards(args.board, list_value=args.list, limit=args.limit)
+            raw_cards = _filter_and_sort_cards(
+                raw_cards, labels=args.label, label_order=args.label_order
+            )
+            return [normalize_card(item, full=args.full) for item in raw_cards], "cards"
         if args.command == "search":
             return [
                 normalize_card(item, full=args.full)
@@ -267,9 +317,13 @@ def _run_card(client: TrelloClient, args: argparse.Namespace) -> tuple[Any, str]
     if command == "comment":
         result = client.comment(args.card, args.text)
         return {"action": "commented", "id": result.get("id"), "card_id": args.card}, "comment"
-    if command == "add-label":
-        result = client.add_label(args.card, args.label_id)
-        return {"action": "label_added", "id": result.get("id")}, "label"
+    if command in {"add-label", "remove-label"}:
+        label_id = _resolve_label_argument(client, args)
+        if command == "add-label":
+            result = client.add_label(args.card, label_id)
+        else:
+            result = client.remove_label(args.card, label_id)
+        return {"action": result["action"], "id": result.get("id")}, "label"
     if command == "add-checklist":
         result = client.add_checklist(args.card, args.name, args.item)
         return {
@@ -313,6 +367,45 @@ def _run_card(client: TrelloClient, args: argparse.Namespace) -> tuple[Any, str]
     raise ValueError(f"unsupported card command: {command}")
 
 
+def _label_keys(card: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for item in card.get("labels", []):
+        keys.add(str(item.get("id", "")).casefold())
+        keys.add(str(item.get("name", "")).casefold())
+    return keys
+
+
+def _filter_and_sort_cards(
+    cards: list[dict[str, Any]], *, labels: list[str], label_order: str | None
+) -> list[dict[str, Any]]:
+    requested = {item.casefold() for item in labels}
+    filtered = [item for item in cards if requested <= _label_keys(item)]
+    if not label_order:
+        return filtered
+    order = {
+        value.strip().casefold(): index
+        for index, value in enumerate(label_order.split(","))
+        if value.strip()
+    }
+    if not order:
+        raise ValueError("--label-order must contain at least one label name or ID")
+    fallback = len(order)
+    return sorted(
+        filtered,
+        key=lambda item: min(
+            (order[key] for key in _label_keys(item) if key in order), default=fallback
+        ),
+    )
+
+
+def _resolve_label_argument(client: TrelloClient, args: argparse.Namespace) -> str:
+    if args.label_id:
+        return str(args.label_id)
+    if not args.board:
+        raise ValueError("--board is required when resolving --label by name")
+    return str(client.resolve_label(args.board, args.label)["id"])
+
+
 def _next_steps(args: argparse.Namespace, data: Any) -> tuple[str, ...]:
     if args.command in {None, "boards"}:
         return ("trello-axi board <board-id>", "trello-axi lists --board <board-id>")
@@ -323,6 +416,10 @@ def _next_steps(args: argparse.Namespace, data: Any) -> tuple[str, ...]:
         )
     if args.command == "lists":
         return (f"trello-axi cards --board {args.board} --list <list-id>",)
+    if args.command == "labels":
+        return (f"trello-axi label ensure --board {args.board} --name <name> --color <color>",)
+    if args.command == "label" and isinstance(data, dict) and data.get("id"):
+        return (f"trello-axi card add-label <card-id> --label-id {data['id']}",)
     if args.command in {"cards", "search"}:
         return (
             "trello-axi card view <card-id>",

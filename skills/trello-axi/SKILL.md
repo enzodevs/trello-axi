@@ -16,6 +16,18 @@ trello-axi board "<board>"
 trello-axi cards --board "<board>" --list "<list>" --limit 50
 ```
 
+## Labels and custom taxonomies
+
+Labels are generic. Resolve or create them by exact name, then filter/order cards using a user-defined taxonomy:
+
+```bash
+trello-axi labels --board "<board>"
+trello-axi label ensure --board "<board>" --name "<label>" --color blue
+trello-axi card add-label <card-id> --board "<board>" --label "<label>"
+trello-axi cards --board "<board>" --label "<label>"
+trello-axi cards --board "<board>" --label-order "<first>,<second>,<third>"
+```
+
 ## Mutate safely
 
 Prefer idempotent `ensure` when retrying is possible:

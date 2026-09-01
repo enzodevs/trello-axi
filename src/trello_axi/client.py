@@ -76,6 +76,48 @@ class TrelloClient:
     def resolve_list(self, board: str, value: str) -> dict[str, Any]:
         return self._resolve(value, self.lists(board, include_closed=True), "list")
 
+    def labels(self, board: str, *, limit: int = 1000) -> list[dict[str, Any]]:
+        board_id = self.resolve_board(board)["id"]
+        return self.request(
+            "GET",
+            f"/boards/{board_id}/labels",
+            params={"limit": limit, "fields": "id,name,color,uses"},
+        )
+
+    def resolve_label(self, board: str, value: str) -> dict[str, Any]:
+        return self._resolve(value, self.labels(board), "label")
+
+    def create_label(self, *, board: str, name: str, color: str) -> dict[str, Any]:
+        board_id = self.resolve_board(board)["id"]
+        return self.request(
+            "POST", "/labels", data={"idBoard": board_id, "name": name, "color": color}
+        )
+
+    def ensure_label(self, *, board: str, name: str, color: str) -> tuple[dict[str, Any], str]:
+        matches = [
+            item
+            for item in self.labels(board)
+            if str(item.get("name", "")).casefold() == name.casefold()
+        ]
+        if len(matches) > 1:
+            raise AmbiguousMatchError(f"multiple labels named {name!r}; use an ID")
+        if not matches:
+            return self.create_label(board=board, name=name, color=color), "created"
+        current = matches[0]
+        if current.get("color") != color:
+            return self.update_label(str(current["id"]), color=color), "updated"
+        return current, "unchanged"
+
+    def update_label(
+        self, label_id: str, *, name: str | None = None, color: str | None = None
+    ) -> dict[str, Any]:
+        data = {
+            key: value for key, value in {"name": name, "color": color}.items() if value is not None
+        }
+        if not data:
+            raise ValueError("label update requires --name or --color")
+        return self.request("PUT", f"/labels/{label_id}", data=data)
+
     def cards(
         self, board: str, *, list_value: str | None = None, limit: int = 50
     ) -> list[dict[str, Any]]:
@@ -238,7 +280,20 @@ class TrelloClient:
         return self.request("POST", f"/cards/{card_id}/actions/comments", data={"text": text})
 
     def add_label(self, card_id: str, label_id: str) -> dict[str, Any]:
-        return self.request("POST", f"/cards/{card_id}/idLabels", data={"value": label_id})
+        current = self.card(card_id)
+        if label_id in {str(item.get("id")) for item in current.get("labels", [])}:
+            return {"id": label_id, "action": "unchanged"}
+        result = self.request("POST", f"/cards/{card_id}/idLabels", data={"value": label_id})
+        result["action"] = "label_added"
+        return result
+
+    def remove_label(self, card_id: str, label_id: str) -> dict[str, Any]:
+        current = self.card(card_id)
+        if label_id not in {str(item.get("id")) for item in current.get("labels", [])}:
+            return {"id": label_id, "action": "unchanged"}
+        result = self.request("DELETE", f"/cards/{card_id}/idLabels/{label_id}")
+        result["action"] = "label_removed"
+        return result
 
     def add_checklist(self, card_id: str, name: str, items: Sequence[str]) -> dict[str, Any]:
         checklist = self.request("POST", f"/cards/{card_id}/checklists", data={"name": name})

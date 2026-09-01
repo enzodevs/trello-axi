@@ -55,6 +55,7 @@ trello-axi board Dream
 trello-axi lists --board Dream
 trello-axi cards --board Dream --list Backlog --limit 50
 trello-axi search videoaula --board Dream
+trello-axi labels --board Dream
 trello-axi card view CARD_ID            # descriptions are bounded to 2,000 chars
 trello-axi card view CARD_ID --full     # explicitly request the complete description
 ```
@@ -67,9 +68,25 @@ trello-axi card ensure --board Dream --list Backlog --title 'Task' --description
 trello-axi card update CARD_ID --title 'New title' --due 2026-06-01
 trello-axi card move CARD_ID --board Dream --list Doing
 trello-axi card comment CARD_ID --text 'Implementation started'
-trello-axi card add-label CARD_ID --label-id LABEL_ID
+trello-axi label ensure --board Dream --name 'Complexity: 5' --color yellow
+trello-axi card add-label CARD_ID --board Dream --label 'Complexity: 5'
+trello-axi card remove-label CARD_ID --board Dream --label 'Complexity: 5'
 trello-axi card add-checklist CARD_ID --name Acceptance --item 'Tests pass' --item 'Docs updated'
 trello-axi card archive CARD_ID
+```
+
+Labels are taxonomy-agnostic. For example, users can model Planning Poker and priority independently:
+
+```bash
+for points in 1 2 3 5 8 13 21; do
+  trello-axi label ensure --board Dream --name "Complexity: $points" --color blue
+done
+for priority in P0 P1 P2 P3; do
+  trello-axi label ensure --board Dream --name "Priority: $priority" --color red
+done
+
+trello-axi cards --board Dream --label 'Priority: P1'
+trello-axi cards --board Dream --label-order 'Complexity: 1,Complexity: 2,Complexity: 3,Complexity: 5,Complexity: 8,Complexity: 13,Complexity: 21'
 ```
 
 `ensure` is idempotent by exact case-insensitive title: it creates a missing card, moves/updates one match, leaves the desired state unchanged, and refuses ambiguous matches.
@@ -110,7 +127,7 @@ Unknown flags fail. Reads default to 50 records and are capped at 1000. Failures
 
 ## Scope
 
-The MVP supports boards and lists, card CRUD, search, moves, archive, comments, labels, checklists, idempotent ensure, and batch creation. It intentionally excludes Power-Ups, webhooks, OAuth multi-user applications, and destructive permanent deletion.
+The CLI supports boards and lists, generic label management, card CRUD, label filtering and custom ordering, search, moves, archive, comments, checklists, idempotent ensure, and batch creation. It intentionally excludes Power-Ups, webhooks, OAuth multi-user applications, and destructive permanent deletion.
 
 ## Development
 

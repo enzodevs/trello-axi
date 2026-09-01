@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from trello_axi.cli import _load_batch, _parser, _positive_int
+from trello_axi.cli import _filter_and_sort_cards, _load_batch, _parser, _positive_int
 
 
 def test_unknown_flags_fail_loud() -> None:
@@ -28,6 +28,28 @@ def test_batch_requires_titles(tmp_path: Path) -> None:
     path.write_text('[{"description":"missing"}]')
     with pytest.raises(ValueError, match="missing a title"):
         _load_batch(path)
+
+
+def test_card_label_filter_requires_all_requested_labels() -> None:
+    cards = [
+        {
+            "id": "1",
+            "labels": [{"id": "a", "name": "P1"}, {"id": "b", "name": "5"}],
+        },
+        {"id": "2", "labels": [{"id": "a", "name": "P1"}]},
+    ]
+    result = _filter_and_sort_cards(cards, labels=["p1", "5"], label_order=None)
+    assert [item["id"] for item in result] == ["1"]
+
+
+def test_card_label_order_is_user_defined_and_agnostic() -> None:
+    cards = [
+        {"id": "21", "labels": [{"id": "x", "name": "21"}]},
+        {"id": "none", "labels": []},
+        {"id": "3", "labels": [{"id": "y", "name": "3"}]},
+    ]
+    result = _filter_and_sort_cards(cards, labels=[], label_order="1,2,3,5,8,13,21")
+    assert [item["id"] for item in result] == ["3", "21", "none"]
 
 
 @pytest.mark.parametrize(

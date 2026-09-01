@@ -39,6 +39,44 @@ def test_exact_resolution_and_ambiguity() -> None:
         TrelloClient._resolve("Other", objects, "board")
 
 
+def test_ensure_label_updates_color_by_exact_name() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/members/me/boards"):
+            return httpx.Response(200, json=[{"id": "b1", "name": "Dream"}])
+        if path.endswith("/boards/b1/labels"):
+            return httpx.Response(
+                200, json=[{"id": "l1", "name": "Complexity: 5", "color": "blue"}]
+            )
+        if path.endswith("/labels/l1") and request.method == "PUT":
+            assert "color=yellow" in request.content.decode()
+            return httpx.Response(
+                200, json={"id": "l1", "name": "Complexity: 5", "color": "yellow"}
+            )
+        raise AssertionError(f"unexpected {request.method} {path}")
+
+    with client(httpx.MockTransport(handler)) as api:
+        result, action = api.ensure_label(board="Dream", name="complexity: 5", color="yellow")
+    assert action == "updated"
+    assert result["color"] == "yellow"
+
+
+def test_add_label_is_idempotent() -> None:
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            200,
+            json={
+                "id": "c1",
+                "name": "Task",
+                "labels": [{"id": "label-1", "name": "P1"}],
+            },
+        )
+    )
+    with client(transport) as api:
+        result = api.add_label("c1", "label-1")
+    assert result == {"id": "label-1", "action": "unchanged"}
+
+
 def test_archive_is_idempotent() -> None:
     requests: list[httpx.Request] = []
 

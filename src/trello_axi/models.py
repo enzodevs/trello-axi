@@ -23,6 +23,15 @@ def trello_list(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def label(raw: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": raw.get("id"),
+        "name": raw.get("name"),
+        "color": raw.get("color"),
+        "uses": raw.get("uses", 0),
+    }
+
+
 def card(
     raw: dict[str, Any], *, full: bool = False, description_limit: int | None = None
 ) -> dict[str, Any]:
